@@ -1,5 +1,14 @@
 package fusionbrain_api
 
+type ModelItem struct {
+	Id      int     `json:"id"`
+	Name    string  `json:"name"`
+	Version float64 `json:"version"`
+	Type    string  `json:"type"`
+}
+
+type ModelsResponse []ModelItem
+
 type GenerateRequest struct {
 	Type                 string `json:"type"`
 	Style                string `json:"style"`
@@ -11,3 +20,17 @@ type GenerateRequest struct {
 		Query string `json:"query"`
 	} `json:"generateParams"`
 }
+
+type GenerateResponse struct {
+	Uuid   string `json:"uuid"`
+	Status string `json:"status"`
+}
+
+type StyleItem struct {
+	Name    string `json:"name"`
+	Title   string `json:"title"`
+	TitleEn string `json:"titleEn"`
+	Image   string `json:"image"`
+}
+
+type StyleResponse []StyleItem
