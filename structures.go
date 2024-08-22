@@ -22,8 +22,11 @@ type GenerateRequest struct {
 }
 
 type GenerateResponse struct {
-	Uuid   string `json:"uuid"`
-	Status string `json:"status"`
+	Uuid             string   `json:"uuid"`
+	Status           string   `json:"status"`
+	Images           []string `json:"images,omitempty"`
+	ErrorDescription string   `json:"errorDescription,omitempty"`
+	Censored         string   `json:"censored,omitempty"`
 }
 
 type StyleItem struct {
