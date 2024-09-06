@@ -4,22 +4,23 @@
 package fusionbrain_api
 
 import (
-	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
-	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Fusionbrain struct {
 	ApiHost   string
 	ApiKey    string
 	SecretKey string
+	Style     string
 }
 
 func NewFusionbrain() *Fusionbrain {
@@ -27,9 +28,14 @@ func NewFusionbrain() *Fusionbrain {
 		ApiHost:   fusionbrainApiHost,
 		ApiKey:    "",
 		SecretKey: "",
+		Style:     "",
 	}
 }
 
+func validateSize() {
+	//1:1 / 2:3 / 3:2 / 9:16 / 16:9
+	//1024
+}
 func (f *Fusionbrain) getUrl(apiPath string) string {
 	return "https://" + fusionbrainApiHost + apiPath
 }
@@ -92,16 +98,44 @@ func (f *Fusionbrain) GetModels() (ModelsResponse, error) {
 		log.Fatal(err2)
 	}
 	return result, nil
-	//bytes.NewBufferString("scope=GIGACHAT_API_PERS")
 }
-func (f *Fusionbrain) Generate() {
-	url := f.getUrl("/key/api/v1/text2image/run")
-	var b bytes.Buffer
-	w := multipart.NewWriter(&b)
-	params := w.CreateFormField("params")
-	params.Write()
-	model := w.CreateFormField("model_id")
 
-	req, err := http.NewRequest("POST", url, &b)
+func (f *Fusionbrain) Generate(query string, negativeQuery string, style string) (string, error) {
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	requestUrl := f.getUrl("/key/api/v1/text2image/run")
+	jData, errJsonRequestEncode := json.Marshal(&GenerateRequest{
+		Type: "GENERATE",
+		GenerateParams: GenerateParams{
+			Query: query,
+		},
+	})
+	if errJsonRequestEncode != nil {
+		log.Fatal(errJsonRequestEncode)
+	}
 
+	//jData = append(jData, []byte(";type=application/json")...)
+	formBody := url.Values{
+		"params": []string{string(jData)},
+		"model":  []string{"4"},
+	}
+	dataReader := formBody.Encode()
+	client, request, _ := f.getRequest(requestUrl, "POST", strings.NewReader(dataReader))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	log.Println(request)
+	response, e := client.Do(request)
+	if e != nil {
+		log.Fatal(e)
+	}
+	log.Println(dataReader)
+	if response.StatusCode != http.StatusOK {
+		log.Fatal(http.StatusOK)
+		return "", errors.New("Http error:" + strconv.Itoa(response.StatusCode))
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		log.Println(err)
+	}
+	defer response.Body.Close()
+	log.Println(body)
+	return string(body), nil
 }

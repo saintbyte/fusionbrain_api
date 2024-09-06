@@ -9,16 +9,18 @@ type ModelItem struct {
 
 type ModelsResponse []ModelItem
 
+type GenerateParams struct {
+	Query string `json:"query"`
+}
+
 type GenerateRequest struct {
-	Type                 string `json:"type"`
-	Style                string `json:"style"`
-	Width                int    `json:"width"`
-	Height               int    `json:"height"`
-	NumImages            int    `json:"num_images"`
-	NegativePromptUnclip string `json:"negativePromptUnclip,omitempty"`
-	GenerateParams       struct {
-		Query string `json:"query"`
-	} `json:"generateParams"`
+	Type                 string         `json:"type"`
+	Style                string         `json:"style,omitempty"`
+	Width                int            `json:"width,omitempty"`
+	Height               int            `json:"height,omitempty"`
+	NumImages            int            `json:"num_images,omitempty"`
+	NegativePromptUnclip string         `json:"negativePromptUnclip,omitempty"`
+	GenerateParams       GenerateParams `json:"generateParams"`
 }
 
 type GenerateResponse struct {
