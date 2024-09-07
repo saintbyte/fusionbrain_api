@@ -4,16 +4,17 @@
 package fusionbrain_api
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	uuid "github.com/nu7hatch/gouuid"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
-	"net/url"
 	"os"
 	"strconv"
-	"strings"
 )
 
 type Fusionbrain struct {
@@ -100,33 +101,57 @@ func (f *Fusionbrain) GetModels() (ModelsResponse, error) {
 	return result, nil
 }
 
+// (prompt, model string, images, width, height int)
+func (f *Fusionbrain) generateParams(gr GenerateRequest) (bytes.Buffer, error) {
+	var b bytes.Buffer
+	writer := multipart.NewWriter(&b)
+
+	// Добавление model_id
+	modelPart, err := writer.CreateFormFile("model_id", "")
+	if err != nil {
+		return b, err
+	}
+	_, err = modelPart.Write([]byte("4"))
+	if err != nil {
+		return b, err
+	}
+
+	// Добавление params
+	paramsJSON, err := json.Marshal(gr)
+	if err != nil {
+		return b, err
+	}
+	paramsPart, err := writer.CreateFormFile("params", "")
+	if err != nil {
+		return b, err
+	}
+	_, err = paramsPart.Write(paramsJSON)
+	if err != nil {
+		return b, err
+	}
+	writer.Close()
+	return b, nil
+}
 func (f *Fusionbrain) Generate(query string, negativeQuery string, style string) (string, error) {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	u, err := uuid.NewV4()
+	boundary := "------------------------" + u.String()
 	requestUrl := f.getUrl("/key/api/v1/text2image/run")
-	jData, errJsonRequestEncode := json.Marshal(&GenerateRequest{
+	gr := GenerateRequest{
 		Type: "GENERATE",
 		GenerateParams: GenerateParams{
 			Query: query,
 		},
-	})
-	if errJsonRequestEncode != nil {
-		log.Fatal(errJsonRequestEncode)
 	}
-
-	//jData = append(jData, []byte(";type=application/json")...)
-	formBody := url.Values{
-		"params": []string{string(jData)},
-		"model":  []string{"4"},
-	}
-	dataReader := formBody.Encode()
-	client, request, _ := f.getRequest(requestUrl, "POST", strings.NewReader(dataReader))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqBody, err := f.generateParams(gr)
+	client, request, _ := f.getRequest(requestUrl, "POST", &reqBody)
+	request.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
 	log.Println(request)
 	response, e := client.Do(request)
 	if e != nil {
 		log.Fatal(e)
 	}
-	log.Println(dataReader)
+	log.Println(reqBody)
 	if response.StatusCode != http.StatusOK {
 		log.Fatal(http.StatusOK)
 		return "", errors.New("Http error:" + strconv.Itoa(response.StatusCode))
