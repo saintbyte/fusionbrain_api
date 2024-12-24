@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	uuid "github.com/nu7hatch/gouuid"
 	"io"
 	"log"
@@ -130,6 +131,93 @@ func (f *Fusionbrain) generateParams(gr GenerateRequest) (bytes.Buffer, error) {
 		return b, err
 	}
 	writer.Close()
+	func main() {
+		// Путь к файлу, который вы хотите загрузить
+		filePath := "input.txt"
+
+		// URL API, куда вы хотите загрузить файл
+		apiURL := "https://example.com/upload"
+
+		// Открываем файл для чтения
+		file, err := os.Open(filePath)
+		if err != nil {
+			fmt.Println("Ошибка при открытии файла:", err)
+			return
+		}
+		defer file.Close()
+
+		// Создаем буфер для multipart/form-data
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+
+		// Добавляем файл в multipart/form-data
+		part, err := writer.CreateFormFile("file", filePath)
+		if err != nil {
+			fmt.Println("Ошибка при создании части формы для файла:", err)
+			return
+		}
+		_, err = io.Copy(part, file)
+		if err != nil {
+			fmt.Println("Ошибка при копировании файла:", err)
+			return
+		}
+
+		// Добавляем переменную genera в multipart/form-data
+		err = writer.WriteField("genera", "value_of_genera")
+		if err != nil {
+			fmt.Println("Ошибка при добавлении переменной genera:", err)
+			return
+		}
+
+		// Закрываем writer, чтобы завершить multipart/form-data
+		err = writer.Close()
+		if err != nil {
+			fmt.Println("Ошибка при закрытии writer:", err)
+			return
+		}
+
+		// Создаем HTTP-запрос
+		req, err := http.NewRequest("POST", apiURL, &buf)
+		if err != nil {
+			fmt.Println("Ошибка при создании запроса:", err)
+			return
+		}
+
+		// Устанавливаем заголовок Content-Type
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		// Выполняем запрос
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Println("Ошибка при выполнении запроса:", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Проверяем статус ответа
+		if resp.StatusCode != http.StatusOK {
+			fmt.Println("Ошибка при загрузке файла:", resp.Status)
+			return
+		}
+
+		// Создаем файл для записи обработанного содержимого
+		outputFile, err := os.Create("output.txt")
+		if err != nil {
+			fmt.Println("Ошибка при создании файла:", err)
+			return
+		}
+		defer outputFile.Close()
+
+		// Копируем содержимое ответа в файл
+		_, err = io.Copy(outputFile, resp.Body)
+		if err != nil {
+			fmt.Println("Ошибка при записи файла:", err)
+			return
+		}
+
+		fmt.Println("Файл успешно загружен и обработан.")
+	}
 	return b, nil
 }
 func (f *Fusionbrain) Generate(query string, negativeQuery string, style string) (string, error) {
