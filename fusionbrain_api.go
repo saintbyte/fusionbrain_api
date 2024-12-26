@@ -9,11 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	uuid "github.com/nu7hatch/gouuid"
 	"io"
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"os"
 	"strconv"
 )
@@ -105,132 +105,79 @@ func (f *Fusionbrain) GetModels() (ModelsResponse, error) {
 }
 
 // (prompt, model string, images, width, height int)
-func (f *Fusionbrain) generateParams(gr GenerateRequest) (bytes.Buffer, error) {
+func CreateAudioFormFile(w *multipart.Writer, filename string) (io.Writer, error) {
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, "file", filename))
+	h.Set("Content-Type", "audio/wav;rate=8000")
+	return w.CreatePart(h)
+}
+func WriteField(w *multipart.Writer, fieldname, value string) error {
+	p, err := w.CreateFormField(fieldname)
+	if err != nil {
+		return err
+	}
+	_, err = p.Write([]byte(value))
+	return err
+}
+
+//func CreateFormFile(w *multipart.Writer, fieldname, filename string) (io.Writer, error) {
+
+// }
+func (f *Fusionbrain) generateParams(gr GenerateRequest) (bytes.Buffer, string, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
-	defer writer.Close()
 	// Добавление model_id
-	err := writer.WriteField("model_id", f.CurrentModel)
-	modelPart, err := writer.CreateFormFile("model_id", "")
+	err := writer.WriteField("model_id", "4")
 	if err != nil {
-		return buf, err
+		return buf, "", err
 	}
-	_, err = modelPart.Write([]byte("4"))
-	if err != nil {
-		return buf, err
-	}
-
-	// Добавление params
+	// ------------------------------------------
 	paramsJSON, err := json.Marshal(gr)
 	if err != nil {
-		return buf, err
+		return buf, "", err
 	}
-	err = writer.WriteField("params", string(paramsJSON))
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", "form-data; name=\"params\"")
+	h.Set("Content-Type", "application/json")
+	p, err := writer.CreatePart(h)
+	_, err = p.Write([]byte(paramsJSON))
 	if err != nil {
-		return buf, err
+		return buf, "", err
 	}
-
-	// Создаем буфер для multipart/form-data
-
-	// Добавляем файл в multipart/form-data
-	part, err := writer.CreateFormFile("file", filePath)
-	if err != nil {
-		fmt.Println("Ошибка при создании части формы для файла:", err)
-		return
-	}
-	_, err = io.Copy(part, file)
-	if err != nil {
-		fmt.Println("Ошибка при копировании файла:", err)
-		return
-	}
-
-	// Добавляем переменную genera в multipart/form-data
-
-	if err != nil {
-		fmt.Println("Ошибка при добавлении переменной genera:", err)
-		return
-	}
-
-	// Закрываем writer, чтобы завершить multipart/form-data
-	err = writer.Close()
-	if err != nil {
-		fmt.Println("Ошибка при закрытии writer:", err)
-		return
-	}
-
-	// Создаем HTTP-запрос
-	req, err := http.NewRequest("POST", apiURL, &buf)
-	if err != nil {
-		fmt.Println("Ошибка при создании запроса:", err)
-		return
-	}
-
-	// Устанавливаем заголовок Content-Type
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	// Выполняем запрос
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Println("Ошибка при выполнении запроса:", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Проверяем статус ответа
-	if resp.StatusCode != http.StatusOK {
-		fmt.Println("Ошибка при загрузке файла:", resp.Status)
-		return
-	}
-
-	// Создаем файл для записи обработанного содержимого
-	outputFile, err := os.Create("output.txt")
-	if err != nil {
-		fmt.Println("Ошибка при создании файла:", err)
-		return
-	}
-	defer outputFile.Close()
-
-	// Копируем содержимое ответа в файл
-	_, err = io.Copy(outputFile, resp.Body)
-	if err != nil {
-		fmt.Println("Ошибка при записи файла:", err)
-		return
-	}
-
-	fmt.Println("Файл успешно загружен и обработан.")
-
-	return buf, nil
+	writer.Close()
+	return buf, writer.Boundary(), nil
 }
 func (f *Fusionbrain) Generate(query string, negativeQuery string, style string) (string, error) {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	u, err := uuid.NewV4()
-	boundary := "------------------------" + u.String()
 	requestUrl := f.getUrl("/key/api/v1/text2image/run")
+	//requestUrl := "http://127.0.0.1:8080/key/api/v1/text2image/run" nc -l 8080
 	gr := GenerateRequest{
 		Type: "GENERATE",
 		GenerateParams: GenerateParams{
 			Query: query,
 		},
 	}
-	reqBody, err := f.generateParams(gr)
+	reqBody, boundary, err := f.generateParams(gr)
 	client, request, _ := f.getRequest(requestUrl, "POST", &reqBody)
 	request.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
+	request.Header.Set("Content-Length", strconv.Itoa(reqBody.Len()))
 	log.Println(request)
 	response, e := client.Do(request)
 	if e != nil {
 		log.Fatal(e)
 	}
 	log.Println(reqBody)
+	log.Println(response)
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		log.Println("read body error:", err)
+	}
+	defer response.Body.Close()
+	log.Println(string(body))
 	if response.StatusCode != http.StatusOK {
 		log.Fatal(http.StatusOK)
 		return "", errors.New("Http error:" + strconv.Itoa(response.StatusCode))
 	}
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		log.Println(err)
-	}
-	defer response.Body.Close()
-	log.Println(body)
+
 	return string(body), nil
 }
