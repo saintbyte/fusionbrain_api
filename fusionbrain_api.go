@@ -8,9 +8,9 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -23,7 +23,7 @@ type Fusionbrain struct {
 	ApiKey       string
 	SecretKey    string
 	Style        string
-	CurrentModel string
+	CurrentModel ModelItem
 }
 
 func NewFusionbrain() *Fusionbrain {
@@ -32,7 +32,7 @@ func NewFusionbrain() *Fusionbrain {
 		ApiKey:       "",
 		SecretKey:    "",
 		Style:        "",
-		CurrentModel: "",
+		CurrentModel: ModelItem{},
 	}
 }
 
@@ -66,6 +66,23 @@ func (f *Fusionbrain) getApiKey() string {
 	return ""
 }
 
+// Модель по умолчанию , чтоб каждый раз не тянут список и выбирать просто захардкорим это тут
+func (f *Fusionbrain) getDefaultModel() ModelItem {
+	return ModelItem{
+		Id:      4,
+		Name:    "Kandinsky",
+		Version: 3.1,
+		Type:    "TEXT2IMAGE",
+	}
+}
+
+func (f *Fusionbrain) getModel() ModelItem {
+	if f.CurrentModel == (ModelItem{}) {
+		return f.getDefaultModel()
+	}
+	return f.CurrentModel
+}
+
 func (f *Fusionbrain) getRequest(url string, method string, data io.Reader) (*http.Client, *http.Request, error) {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	request, err := http.NewRequest(method, url, data)
@@ -80,54 +97,39 @@ func (f *Fusionbrain) getRequest(url string, method string, data io.Reader) (*ht
 }
 
 func (f *Fusionbrain) GetModels() (ModelsResponse, error) {
-	url := f.getUrl("/key/api/v1/models")
+	url := f.getUrl(fusionbrainModelsPath)
 	log.Println(url)
 	client, request, _ := f.getRequest(url, "GET", nil)
 	response, e := client.Do(request)
 	if e != nil {
-		log.Fatal(e)
+		slog.Error("GetModels client do error:", e)
+		return ModelsResponse{}, e
 	}
 	if response.StatusCode != http.StatusOK {
 		return ModelsResponse{}, errors.New("Http error:" + strconv.Itoa(response.StatusCode))
 	}
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Println(err)
+		slog.Error("GetModels read body error:", err)
+		return ModelsResponse{}, e
 	}
 	defer response.Body.Close()
 
 	var result ModelsResponse
 	err2 := json.Unmarshal(body, &result)
 	if err2 != nil {
-		log.Fatal(err2)
+		slog.Error("GetModels json.Unmarshal error:", err2)
+		return ModelsResponse{}, e
 	}
 	return result, nil
 }
 
-// (prompt, model string, images, width, height int)
-func CreateAudioFormFile(w *multipart.Writer, filename string) (io.Writer, error) {
-	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, "file", filename))
-	h.Set("Content-Type", "audio/wav;rate=8000")
-	return w.CreatePart(h)
-}
-func WriteField(w *multipart.Writer, fieldname, value string) error {
-	p, err := w.CreateFormField(fieldname)
-	if err != nil {
-		return err
-	}
-	_, err = p.Write([]byte(value))
-	return err
-}
-
-//func CreateFormFile(w *multipart.Writer, fieldname, filename string) (io.Writer, error) {
-
-// }
 func (f *Fusionbrain) generateParams(gr GenerateRequest) (bytes.Buffer, string, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
+	// (prompt, model string, images, width, height int)
 	// Добавление model_id
-	err := writer.WriteField("model_id", "4")
+	err := writer.WriteField("model_id", strconv.Itoa(f.getDefaultModel().Id))
 	if err != nil {
 		return buf, "", err
 	}
@@ -147,9 +149,61 @@ func (f *Fusionbrain) generateParams(gr GenerateRequest) (bytes.Buffer, string, 
 	writer.Close()
 	return buf, writer.Boundary(), nil
 }
-func (f *Fusionbrain) Generate(query string, negativeQuery string, style string) (string, error) {
+func (f *Fusionbrain) СheckStatus(uuidOfRequest string) (GenerateResponse, error) {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	requestUrl := f.getUrl("/key/api/v1/text2image/run")
+	requestUrl := f.getUrl(fusionbrainCheckStatusPath + uuidOfRequest)
+	client, request, _ := f.getRequest(requestUrl, "GET", nil)
+	response, e := client.Do(request)
+	if e != nil {
+		slog.Error("checkStatus client.Do error:", e)
+		return GenerateResponse{}, e
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		slog.Error("checkStatus read body error:", err)
+		return GenerateResponse{}, err
+	}
+	defer response.Body.Close()
+	var result GenerateResponse
+	err2 := json.Unmarshal(body, &result)
+	if err2 != nil {
+		slog.Error("checkStatus json.Unmarshal error:", err2)
+		return GenerateResponse{}, err2
+	}
+	return result, nil
+}
+
+// Работает не понятно как , в документации есть а так Unauthorized 401
+func (f *Fusionbrain) availability() (AvailabilityResponse, error) {
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	requestUrl := f.getUrl(fusionbrainAvailabilityPath)
+	client, request, _ := f.getRequest(requestUrl, "GET", nil)
+	response, e := client.Do(request)
+	if e != nil {
+		slog.Error("Availability client do error:", e)
+		return AvailabilityResponse{}, e
+	}
+	log.Println(response)
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		slog.Error("Availability read body error:", err)
+		return AvailabilityResponse{}, e
+	}
+	slog.Info(string(body))
+	defer response.Body.Close()
+
+	var result AvailabilityResponse
+	err2 := json.Unmarshal(body, &result)
+	if err2 != nil {
+		slog.Error("Availability json.Unmarshal error:", err)
+		return AvailabilityResponse{}, e
+	}
+	return result, nil
+}
+
+func (f *Fusionbrain) Generate(query string, negativeQuery string, style string) (GenerateResponse, error) {
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	requestUrl := f.getUrl(fusionbrainGeneratePath)
 	//requestUrl := "http://127.0.0.1:8080/key/api/v1/text2image/run" nc -l 8080
 	gr := GenerateRequest{
 		Type: "GENERATE",
@@ -161,23 +215,30 @@ func (f *Fusionbrain) Generate(query string, negativeQuery string, style string)
 	client, request, _ := f.getRequest(requestUrl, "POST", &reqBody)
 	request.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
 	request.Header.Set("Content-Length", strconv.Itoa(reqBody.Len()))
-	log.Println(request)
 	response, e := client.Do(request)
 	if e != nil {
-		log.Fatal(e)
+		slog.Error("Generate client do error:", e)
+		return GenerateResponse{}, e
 	}
-	log.Println(reqBody)
-	log.Println(response)
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Println("read body error:", err)
+		slog.Error("Generate  read body error:", err)
+		return GenerateResponse{}, e
 	}
 	defer response.Body.Close()
 	log.Println(string(body))
-	if response.StatusCode != http.StatusOK {
-		log.Fatal(http.StatusOK)
-		return "", errors.New("Http error:" + strconv.Itoa(response.StatusCode))
+	if response.StatusCode != http.StatusCreated {
+		slog.Error("Generate http error:" + strconv.Itoa(response.StatusCode))
+		return GenerateResponse{}, errors.New("Http error:" + strconv.Itoa(response.StatusCode))
 	}
-
-	return string(body), nil
+	var result GenerateResponse
+	err2 := json.Unmarshal(body, &result)
+	if err2 != nil {
+		slog.Error("Generate json.Unmarshal error:", err)
+		return GenerateResponse{}, e
+	}
+	return result, nil
+}
+func (f *Fusionbrain) Get(queryId string) (string, error) {
+	return "", nil
 }

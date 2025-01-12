@@ -16,7 +16,7 @@ func main() {
 		log.Println("ID:", model.Id)
 		log.Println("Name:", model.Name)
 		log.Println("Version:", model.Version)
-		log.Println("Type: ", model.Type)
+		log.Println("Type:", model.Type)
 		log.Println("--------------------")
 	}
 }
