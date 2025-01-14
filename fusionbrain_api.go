@@ -6,6 +6,7 @@ package fusionbrain_api
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -201,6 +202,7 @@ func (f *Fusionbrain) availability() (AvailabilityResponse, error) {
 	return result, nil
 }
 
+// запускаем генерацию картинки
 func (f *Fusionbrain) Generate(query string, negativeQuery string, style string) (GenerateResponse, error) {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	requestUrl := f.getUrl(fusionbrainGeneratePath)
@@ -239,6 +241,27 @@ func (f *Fusionbrain) Generate(query string, negativeQuery string, style string)
 	}
 	return result, nil
 }
-func (f *Fusionbrain) Get(queryId string) (string, error) {
-	return "", nil
+
+// Декодируем из ответа картинку в байтовый поток
+func (f *Fusionbrain) ImageToReader(response GenerateResponse, imageIndex int) (io.Reader, error) {
+	data, err := base64.StdEncoding.DecodeString(response.Images[imageIndex])
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(data), nil
+}
+
+// Сохраняем картинку из ответа в файл
+func (f *Fusionbrain) ImageToFile(response GenerateResponse, imageIndex int, filename string) (*os.File, error) {
+	reader, err := f.ImageToReader(response, imageIndex)
+	file, err := os.Create(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	_, err = io.Copy(file, reader)
+	if err != nil {
+		return nil, err
+	}
+	return file, nil
 }

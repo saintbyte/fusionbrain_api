@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/saintbyte/fusionbrain_api"
 	"log/slog"
+	"strconv"
 	"time"
 )
 
@@ -30,6 +31,7 @@ func main() {
 	var status = fusionbrain_api.GenerateResponse{}
 	var cnt = 0
 	for {
+		slog.Info("cnt:", cnt)
 		status, err = fb.СheckStatus(result.Uuid)
 		if err != nil {
 			slog.Error("CheckStatus error:", err)
@@ -47,9 +49,9 @@ func main() {
 			return
 		}
 		cnt++
-		time.Sleep(1 * time.Second)
+		time.Sleep(10 * time.Second)
 	}
-	for _, image := range status.Images {
-		slog.Info(image)
+	for i, _ := range status.Images {
+		fb.ImageToFile(status, i, strconv.Itoa(i)+".jpg")
 	}
 }
